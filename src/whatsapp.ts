@@ -135,24 +135,19 @@ export async function startWhatsAppConnection(
           lastDisconnect?.error
         );
 
-        if (authMode) {
-          if (statusCode === DisconnectReason.loggedOut) {
+        if (statusCode === DisconnectReason.loggedOut) {
+          if (authMode) {
             console.error("Authentication failed: Logged out.");
-            process.exit(1);
-          }
-          // In auth mode, don't reconnect - just exit
-          console.error("Connection closed during authentication.");
-          process.exit(1);
-        } else {
-          if (statusCode !== DisconnectReason.loggedOut) {
-            logger.info("Reconnecting...");
-            startWhatsAppConnection(logger, false);
           } else {
             logger.error(
               "Connection closed: Logged Out. Please delete auth directory and run --auth again."
             );
-            process.exit(1);
           }
+          process.exit(1);
+        } else {
+          // Reconnect on non-logout disconnections (normal during auth handshake)
+          logger.info("Reconnecting...");
+          startWhatsAppConnection(logger, authMode);
         }
       } else if (connection === "open") {
         connectionOpened = true;
