@@ -1,9 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
-import path from "node:path";
 import fs from "node:fs";
 
-const DATA_DIR = path.join(import.meta.dirname, "..", "data");
-const DB_PATH = path.join(DATA_DIR, "whatsapp.db");
+import { DATA_DIR, DB_PATH } from "./paths.ts";
 
 export interface Chat {
   jid: string;

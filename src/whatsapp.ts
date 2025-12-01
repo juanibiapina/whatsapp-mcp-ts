@@ -10,17 +10,15 @@ import {
   jidNormalizedUser,
 } from "@whiskeysockets/baileys";
 import P from "pino";
-import path from "node:path";
+import qrcode from "qrcode-terminal";
 import open from "open";
 
+import { AUTH_DIR } from "./paths.ts";
 import {
-  initializeDatabase,
   storeMessage,
   storeChat,
   type Message as DbMessage,
 } from "./database.ts";
-
-const AUTH_DIR = path.join(import.meta.dirname, "..", "auth_info");
 
 export type WhatsAppSocket = ReturnType<typeof makeWASocket>;
 
@@ -90,10 +88,9 @@ function parseMessageForDb(msg: WAMessage): DbMessage | null {
 }
 
 export async function startWhatsAppConnection(
-  logger: P.Logger
+  logger: P.Logger,
+  authMode: boolean = false
 ): Promise<WhatsAppSocket> {
-  initializeDatabase();
-
   const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
   const { version, isLatest } = await fetchLatestBaileysVersion();
   logger.info(`Using WA v${version.join(".")}, isLatest: ${isLatest}`);
@@ -109,18 +106,24 @@ export async function startWhatsAppConnection(
     shouldIgnoreJid: (jid) => isJidGroup(jid),
   });
 
+  let connectionOpened = false;
+
   sock.ev.process(async (events) => {
     if (events["connection.update"]) {
       const update = events["connection.update"];
       const { connection, lastDisconnect, qr } = update;
 
       if (qr) {
-        logger.info(
-          { qrCodeData: qr },
-          "QR Code Received. Copy the qrCodeData string and use a QR code generator (e.g., online website) to display and scan it with your WhatsApp app."
-        );
-        // for now we roughly open the QR code in a browser
-        await open(`https://quickchart.io/qr?text=${encodeURIComponent(qr)}`);
+        if (authMode) {
+          qrcode.generate(qr, { small: true });
+          console.log("\nScan this QR code with WhatsApp on your phone.");
+        } else {
+          logger.info(
+            { qrCodeData: qr },
+            "QR Code Received. Copy the qrCodeData string and use a QR code generator (e.g., online website) to display and scan it with your WhatsApp app."
+          );
+          await open(`https://quickchart.io/qr?text=${encodeURIComponent(qr)}`);
+        }
       }
 
       if (connection === "close") {
@@ -131,24 +134,47 @@ export async function startWhatsAppConnection(
           }`,
           lastDisconnect?.error
         );
-        if (statusCode !== DisconnectReason.loggedOut) {
-          logger.info("Reconnecting...");
-          startWhatsAppConnection(logger);
-        } else {
-          logger.error(
-            "Connection closed: Logged Out. Please delete auth_info and restart."
-          );
+
+        if (authMode) {
+          if (statusCode === DisconnectReason.loggedOut) {
+            console.error("Authentication failed: Logged out.");
+            process.exit(1);
+          }
+          // In auth mode, don't reconnect - just exit
+          console.error("Connection closed during authentication.");
           process.exit(1);
+        } else {
+          if (statusCode !== DisconnectReason.loggedOut) {
+            logger.info("Reconnecting...");
+            startWhatsAppConnection(logger, false);
+          } else {
+            logger.error(
+              "Connection closed: Logged Out. Please delete auth directory and run --auth again."
+            );
+            process.exit(1);
+          }
         }
       } else if (connection === "open") {
+        connectionOpened = true;
         logger.info(`Connection opened. WA user: ${sock.user?.name}`);
-        console.log("Logged as", sock.user?.name);
+        if (authMode) {
+          console.log(`\nConnected as: ${sock.user?.name}`);
+          console.log("Waiting for credentials to be saved...");
+        } else {
+          console.log("Logged as", sock.user?.name);
+        }
       }
     }
 
     if (events["creds.update"]) {
       await saveCreds();
       logger.info("Credentials saved.");
+
+      if (authMode && connectionOpened) {
+        console.log("\nAuthentication successful!");
+        console.log("You can now run the MCP server without --auth.");
+        process.exit(0);
+      }
     }
 
     if (events["messaging-history.set"]) {
