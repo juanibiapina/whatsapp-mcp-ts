@@ -155,8 +155,6 @@ export async function startWhatsAppConnection(
         if (authMode) {
           console.log(`\nConnected as: ${sock.user?.name}`);
           console.log("Waiting for credentials to be saved...");
-        } else {
-          console.log("Logged as", sock.user?.name);
         }
       }
     }
