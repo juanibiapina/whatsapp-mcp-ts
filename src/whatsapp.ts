@@ -103,7 +103,7 @@ export async function startWhatsAppConnection(
       keys: makeCacheableSignalKeyStore(state.keys, logger),
     },
     generateHighQualityLinkPreview: true,
-    shouldIgnoreJid: (jid) => isJidGroup(jid),
+    syncFullHistory: true,
   });
 
   let connectionOpened = false;
@@ -174,6 +174,19 @@ export async function startWhatsAppConnection(
       const { chats, contacts, messages, isLatest, progress, syncType } =
         events["messaging-history.set"];
 
+      // Store contacts first (to have names available)
+      if (contacts) {
+        for (const contact of contacts) {
+          if (contact.id) {
+            storeChat({
+              jid: contact.id,
+              name: contact.name || contact.notify,
+            });
+          }
+        }
+        logger.info(`Processed ${contacts.length} contacts from history sync.`);
+      }
+
       chats.forEach((chat) =>
         storeChat({
           jid: chat.id,
@@ -193,6 +206,32 @@ export async function startWhatsAppConnection(
         }
       });
       logger.info(`Stored ${storedCount} messages from history sync.`);
+    }
+
+    if (events["contacts.upsert"]) {
+      const contacts = events["contacts.upsert"];
+      for (const contact of contacts) {
+        if (contact.id) {
+          storeChat({
+            jid: contact.id,
+            name: contact.name || contact.notify,
+          });
+        }
+      }
+      logger.info(`Stored ${contacts.length} contacts from contacts.upsert.`);
+    }
+
+    if (events["contacts.update"]) {
+      const contacts = events["contacts.update"];
+      for (const contact of contacts) {
+        if (contact.id) {
+          storeChat({
+            jid: contact.id,
+            name: contact.name || contact.notify,
+          });
+        }
+      }
+      logger.info(`Updated ${contacts.length} contacts from contacts.update.`);
     }
 
     if (events["messages.upsert"]) {
